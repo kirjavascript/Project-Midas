@@ -2293,6 +2293,7 @@ f32 bondviewGet8003646CRad(void)
 */
 #ifndef TARGET_N64
 extern f32 portJoyPortJumpHeight(void);
+extern void portConLogf(const char *fmt, ...);
 
 /**
  * Jump support: the top of the highest object under Bond that he can step onto
@@ -2344,6 +2345,175 @@ static f32 portJumpObjectFloor(f32 floor)
         }
     }
     return best;
+}
+
+static HitThing s_portLedgeHit;  /* last hit, for GE_LEDGEDBG */
+
+/* 1 = level geometry crosses the horizontal segment from `from` to `to` at
+ * height y in `room`. A room with no geometry loaded counts as a hit, so an
+ * unknown wall is never walked through. walls_only ignores floor-like hits
+ * (normal mostly vertical), which a ray skimming a ledge top can graze. */
+static s32 portLedgeBgHit(struct coord3d *from, struct coord3d *to, f32 y, s32 room, s32 walls_only)
+{
+    struct coord3d a;
+    struct coord3d b;
+    f32 n;
+
+    if ((room < 0) || (g_BgRoomInfo[room].vtx_batch_bounds == NULL))
+    {
+        s_portLedgeHit.normal.f[1] = -99.0f; /* marks "room not loaded" in the log */
+        return 1;
+    }
+    a.f[0] = from->f[0]; a.f[1] = y; a.f[2] = from->f[2];
+    b.f[0] = to->f[0];   b.f[1] = y; b.f[2] = to->f[2];
+    if (!bgTestBulletHitBackground(&a, &b, room, &s_portLedgeHit))
+    {
+        return 0;
+    }
+    {   /* the bullet test reports the nearest hit on the whole line, not just
+         * the segment, so a far wall would count; keep hits within the segment */
+        const f32 ws = get_room_data_float2();
+        const f32 hx = (s_portLedgeHit.hitpos.f[0] * ws) - a.f[0];
+        const f32 hz = (s_portLedgeHit.hitpos.f[2] * ws) - a.f[2];
+        const f32 sx = b.f[0] - a.f[0];
+        const f32 sz = b.f[2] - a.f[2];
+
+        if (((hx * sx) + (hz * sz) < 0.0f) || ((hx * hx) + (hz * hz) > (sx * sx) + (sz * sz) + 1.0f))
+        {
+            return 0;
+        }
+    }
+    n = sqrtf((s_portLedgeHit.normal.f[0] * s_portLedgeHit.normal.f[0])
+              + (s_portLedgeHit.normal.f[1] * s_portLedgeHit.normal.f[1])
+              + (s_portLedgeHit.normal.f[2] * s_portLedgeHit.normal.f[2]));
+    return !(walls_only && (n > 0.0f) && (fabsf(s_portLedgeHit.normal.f[1]) > 0.7f * n));
+}
+
+/**
+ * Jump support: a move refused by a tile edge while Bond is off the floor.
+ * Stan edges have no height, so ledges and railings look like walls; this
+ * crosses when there is floor behind the edge no higher than a step above his
+ * feet (a ledge to climb, or lower ground past a railing), he fits there, and
+ * the room geometry is clear at max(feet, ledge) and at head height.
+ * Bond is placed one collision radius past the edge so his circle clears it.
+ * GE_LEDGEDBG=1 logs each attempt. Returns 1 when Bond was moved.
+ */
+static s32 portJumpLedgeMove(struct coord3d *next_pos)
+{
+    static s32 dbg = -1;
+    StandTile *cur = g_CurrentPlayer->field_488.current_tile_ptr;
+    struct coord3d *pos = &g_CurrentPlayer->field_488.collision_position;
+    const f32 feet = g_CurrentPlayer->field_70;
+    struct coord3d target;
+    StandTile *ledge;
+    StandTile *fit;
+    f32 curFloor;
+    f32 ledgeY = 0.0f;
+    f32 radius;
+    f32 height;
+    f32 always_30;
+    f32 dx;
+    f32 dz;
+    f32 len;
+    s32 cdtypes;
+    s32 ok;
+    const char *why = NULL;
+    const char *ray = "";
+    static s32 lastLog;
+
+    if (dbg < 0)
+    {
+        dbg = (getenv("GE_LEDGEDBG") != NULL);
+    }
+    if ((cur == NULL) || (portJoyPortJumpHeight() <= 0.0f) || g_PlayerIsInTank || (g_PlayerTankProp != NULL))
+    {
+        return 0;
+    }
+    curFloor = stanGetPositionYValue(cur, pos->f[0], pos->f[2]);
+    if (feet <= curFloor + 1.0f)
+    {
+        return 0;
+    }
+
+    bondviewGetCollisionRadius(g_CurrentPlayer->prop, &radius, &height, &always_30);
+    dx = next_pos->f[0] - pos->f[0];
+    dz = next_pos->f[2] - pos->f[2];
+    len = sqrtf((dx * dx) + (dz * dz));
+    if (len <= 0.0f)
+    {
+        return 0;
+    }
+    target.f[0] = next_pos->f[0] + ((dx / len) * (radius + 2.0f));
+    target.f[1] = feet + 30.0f;
+    target.f[2] = next_pos->f[2] + ((dz / len) * (radius + 2.0f));
+
+    ledge = stanFindTileBelowPos(&target, NULL, &ledgeY);
+    if (ledge == NULL)
+    {
+        why = "no floor";
+    }
+    else if (ledge == cur)
+    {
+        why = "same tile";
+    }
+    else
+    {
+        const f32 base = (feet > ledgeY) ? feet : ledgeY;
+        const f32 heads = base + bondviewGetPlayerDuckingHeightRelated(g_CurrentPlayer);
+        const s32 r0 = getTileRoom(cur);
+        const s32 r1 = getTileRoom(ledge);
+
+        if (feet > ledgeY)
+        {
+            height += feet - ledgeY;
+            always_30 += feet - ledgeY;
+        }
+        cdtypes = obj_collision_flag ? (CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PLAYERS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER) : 0;
+        fit = ledge;
+        sub_GAME_7F03D058(g_CurrentPlayer->prop, 0);
+        ok = stanTestVolume(&fit, target.f[0], target.f[2], radius, cdtypes, height, always_30) < 0;
+        sub_GAME_7F03D058(g_CurrentPlayer->prop, 1);
+
+        if (!ok)
+        {
+            why = "no room";
+        }
+        else if (portLedgeBgHit(pos, &target, base + 10.0f, r0, 1)) { why = "wall"; ray = "low/from-room"; }
+        else if (portLedgeBgHit(pos, &target, heads, r0, 0))        { why = "wall"; ray = "head/from-room"; }
+        else if ((r1 != r0) && portLedgeBgHit(pos, &target, base + 10.0f, r1, 1)) { why = "wall"; ray = "low/to-room"; }
+        else if ((r1 != r0) && portLedgeBgHit(pos, &target, heads, r1, 0))        { why = "wall"; ray = "head/to-room"; }
+    }
+
+    if (dbg && ((why == NULL) || ((s32) g_GlobalTimer - lastLog >= 10)))
+    {
+        lastLog = (s32) g_GlobalTimer;
+        struct coord3d high = target;
+        f32 topY = 0.0f;
+        StandTile *top;
+
+        high.f[1] = 100000.0f;
+        top = stanFindTileBelowPos(&high, NULL, &topY);
+        portConLogf("ge: ledge %s: feet=%.1f floor=%.1f ledge=%.1f top=%.1f at (%.1f %.1f) rooms %d->%d\n",
+                    why ? why : "CROSS", feet, curFloor, ledge ? ledgeY : 0.0f, top ? topY : -99999.0f,
+                    target.f[0], target.f[2], getTileRoom(cur), ledge ? getTileRoom(ledge) : -1);
+        if (ray[0] != '\0')
+        {
+            const f32 ws = get_room_data_float2();
+
+            portConLogf("ge: ledge   ray %s hit=(%.1f %.1f %.1f) normal=(%.2f %.2f %.2f)\n", ray,
+                        s_portLedgeHit.hitpos.f[0] * ws, s_portLedgeHit.hitpos.f[1] * ws, s_portLedgeHit.hitpos.f[2] * ws,
+                        s_portLedgeHit.normal.f[0], s_portLedgeHit.normal.f[1], s_portLedgeHit.normal.f[2]);
+        }
+    }
+    if (why != NULL)
+    {
+        return 0;
+    }
+
+    g_CurrentPlayer->field_488.current_tile_ptr = ledge;
+    pos->f[0] = target.f[0];
+    pos->f[2] = target.f[2];
+    return 1;
 }
 #endif
 
@@ -3394,6 +3564,10 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
                                     && stanSavedColl_tile == NULL) ? g_portBlockProp : NULL;
             s_portBlockCauseTop = g_portBlockTop;
         }
+        if ((s_portBlockCauseProp == NULL) && portJumpLedgeMove(&next_pos))
+        {
+            goto ledge_climbed;
+        }
 #endif
         // return values are:
         //   1 if able to update stan and collision position
@@ -3451,6 +3625,7 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
                 fflush(stderr);
             }
         }
+ledge_climbed:;
 #endif
     }
 
@@ -5681,6 +5856,13 @@ void bondviewUpdatePlayerY(s32 use_stanHeight, f32 stanHeight_offset)
         }
 
 #ifndef TARGET_N64
+        /* Rising into a floor above his feet (a ledge or crate top reached
+         * mid-jump): the jump is over, and the step-up smoothing below lifts him. */
+        if ((g_CurrentPlayer->field_7C > 0.0f) && (g_CurrentPlayer->field_70 < g_CurrentPlayer->stanHeight))
+        {
+            g_CurrentPlayer->field_7C = 0.0f;
+        }
+
         if ((use_stanHeight == 0) && (g_CurrentPlayer->field_2A6C == 0)
             && (g_CurrentPlayer->field_7C <= 0.0f)
             && (g_CurrentPlayer->field_70 - g_CurrentPlayer->stanHeight < 1.0f))
