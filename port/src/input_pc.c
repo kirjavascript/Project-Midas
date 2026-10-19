@@ -143,8 +143,9 @@ enum
     PM_PORT_FIRST,
     /* +19 mouse_unlock (never bound on a pad, but the order must match
      * joy_port's, checked at init),
-     * +20 classic_toggle (Classic Mode bindable on a pad, as Tab is on the keyboard) */
-    PM_PORT_LAST = PM_PORT_FIRST + 20,
+     * +20 classic_toggle (Classic Mode bindable on a pad, as Tab is on the keyboard),
+     * +21 jump */
+    PM_PORT_LAST = PM_PORT_FIRST + 21,
     PM_COUNT
 };
 #define PM_PORT_COUNT (PM_PORT_LAST - PM_PORT_FIRST + 1)
@@ -164,7 +165,7 @@ static const char *sPadMapNames[PM_COUNT] =
     "detonate",
     "zoom_in", "zoom_out",
     "menu_accept", "menu_back",
-    "mouse_unlock", "classic_toggle",
+    "mouse_unlock", "classic_toggle", "jump",
 };
 /* The raw (unmapped DInput) fallback layout of portInputPadMerge expressed as
  * map tokens, so the launcher, first-rebind seed and bind rows can describe it.

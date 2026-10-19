@@ -41,6 +41,8 @@ Data/Devices/kbm.gedevice (see the last section).
                       |         | pressed together detonate them
   shoot_next_prev     | 1       | Hold next weapon (or next gadget) and tap
                       |         | shoot to go back one, as N64 A held + Z
+  jump_height         | 100     | How high the jump key lifts Bond, in
+                      |         | world units (0 = jumping off)
   Controllers
   pads                | 4       | N64 pads reported connected (1 to 4)
   rumble              | 1       | Vibration on or off
@@ -309,6 +311,7 @@ Port actions (extra actions beyond the N64 pad)
   menu_back        |                  | Menu-only back
   mouse_unlock     | F1               | Release or re-grab the mouse pointer
   classic_toggle   | Tab              | Switch Classic Mode on or off
+  jump             | Space            | Jump
 
 Retired keys (ignored): run, walk_toggle.
 

@@ -2171,6 +2171,10 @@ static void videoWriteDefaultIni(void)
         extern s32 portJoyPortShootNextPrev(void);
         fprintf(f, "shoot_next_prev=%d\n", portJoyPortShootNextPrev());
     }
+    {
+        extern f32 portJoyPortJumpHeight(void);
+        fprintf(f, "jump_height=%g\n", (double) portJoyPortJumpHeight());
+    }
     fprintf(f, "mouse=1\n");
     {   /* the live value, so the file can never drift from input_pc.c's
          * default again (it wrote 1 here after the default went to 0) */

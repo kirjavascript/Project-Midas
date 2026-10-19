@@ -2291,6 +2291,62 @@ f32 bondviewGet8003646CRad(void)
 /**
  * Address 0x7F07CF8C.
 */
+#ifndef TARGET_N64
+extern f32 portJoyPortJumpHeight(void);
+
+/**
+ * Jump support: the top of the highest object under Bond that he can step onto
+ * from his current feet height (field_70), or `floor` if there is none. Only
+ * objects that block at floor level count (top above floor + 30, the
+ * step allowance), so low props stay walk-through as on N64.
+ */
+static f32 portJumpObjectFloor(f32 floor)
+{
+    StandTile *tile = g_CurrentPlayer->field_488.current_tile_ptr;
+    struct coord3d *pos = &g_CurrentPlayer->field_488.collision_position;
+    const f32 radius = g_CurrentPlayer->field_488.collision_radius;
+    const f32 feet = g_CurrentPlayer->field_70;
+    f32 best = floor;
+    s32 rooms[21];
+    s32 count = 0;
+    s16 *idx;
+
+    if (tile == NULL || portJoyPortJumpHeight() <= 0.0f)
+    {
+        return floor;
+    }
+    sub_GAME_7F0B21B0(&tile, pos->f[0], pos->f[2], radius, rooms, &count, 20);
+    rooms[(count > 20) ? 20 : count] = -1;
+    roomGetProps(rooms);
+
+    for (idx = ptr_list_object_lookup_indices; *idx >= 0; idx++)
+    {
+        PropRecord *prop = &g_Props[*idx];
+        struct rect4f *polygon;
+        s32 edges;
+        f32 top;
+        f32 bottom;
+
+        if ((prop->type != PROP_TYPE_OBJ) || !propIsOfCdType(prop, CDTYPE_OBJS)
+            || (((struct TankRecord *) prop->obj)->type == PROPDEF_TANK))
+        {
+            continue;
+        }
+        chraiGetCollisionBounds(prop, &polygon, &edges, &top, &bottom);
+        if ((edges <= 0) || (top <= floor + 30.0f) || (top > feet + 30.0f) || (top <= best))
+        {
+            continue;
+        }
+        if (chrpropTestPointInPolygon(pos, polygon, edges)
+            || chrobjTestPointPolygonCollision(pos, radius * 0.5f, polygon, edges))
+        {
+            best = top;
+        }
+    }
+    return best;
+}
+#endif
+
 s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
 {
     s32 sp94;
@@ -2346,6 +2402,24 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
         }
 
         bondviewGetCollisionRadius(g_CurrentPlayer->prop, &collision_radius, &height, &always_30);
+
+#ifndef TARGET_N64
+        /* The stan prop tests measure this window from the floor, so lift it
+         * by how far Bond's feet are above the floor: mid-jump or on top of a
+         * crate he clears what is below his feet + 30, as a step on the floor. */
+        if ((sp90 != NULL) && (portJoyPortJumpHeight() > 0.0f))
+        {
+            const f32 lift = g_CurrentPlayer->field_70 - stanGetPositionYValue(sp90,
+                g_CurrentPlayer->field_488.collision_position.f[0],
+                g_CurrentPlayer->field_488.collision_position.f[2]);
+
+            if (lift > 0.0f)
+            {
+                height += lift;
+                always_30 += lift;
+            }
+        }
+#endif
 
         if (g_WorldTankProp != NULL)
         {
@@ -5594,6 +5668,9 @@ void bondviewUpdatePlayerY(s32 use_stanHeight, f32 stanHeight_offset)
             }
 
             g_CurrentPlayer->stanHeight = sp64;
+#ifndef TARGET_N64
+            g_CurrentPlayer->stanHeight = portJumpObjectFloor(g_CurrentPlayer->stanHeight);
+#endif
         }
 
         if ((g_CurrentPlayer->field_2A6C != 0) && (g_CurrentPlayer->field_70 < g_CurrentPlayer->stanHeight))
@@ -5602,6 +5679,30 @@ void bondviewUpdatePlayerY(s32 use_stanHeight, f32 stanHeight_offset)
             g_CurrentPlayer->field_488.current_tile_ptr = g_CurrentPlayer->field_2A70;
             g_CurrentPlayer->field_2A70 = NULL;
         }
+
+#ifndef TARGET_N64
+        if ((use_stanHeight == 0) && (g_CurrentPlayer->field_2A6C == 0)
+            && (g_CurrentPlayer->field_7C <= 0.0f)
+            && (g_CurrentPlayer->field_70 - g_CurrentPlayer->stanHeight < 1.0f))
+        {
+            extern s32 portJoyPortJumpPressed(void);
+
+            if (portJoyPortJumpPressed())
+            {
+                /* Same gravity as the fall below; peak = v^2 / 2g. Lifting
+                 * field_70 off the floor lets that fall code integrate it. */
+                const f32 g = ((get_debug_fast_bond_flag() != 0) && (g_ForceBondMoveOffset.f[0] == 0.0f) && (g_ForceBondMoveOffset.f[2] == 0.0f))
+                    ? 1.388889f : 0.27777779f;
+
+                g_CurrentPlayer->field_7C = sqrtf(2.0f * g * portJoyPortJumpHeight());
+                if (g_CurrentPlayer->field_70 < g_CurrentPlayer->stanHeight)
+                {
+                    g_CurrentPlayer->field_70 = g_CurrentPlayer->stanHeight;
+                }
+                g_CurrentPlayer->field_70 += 0.01f;
+            }
+        }
+#endif
 
         if ((g_CurrentPlayer->field_7C >= 0.0f) || (g_CurrentPlayer->field_70 < g_CurrentPlayer->stanHeight))
         {

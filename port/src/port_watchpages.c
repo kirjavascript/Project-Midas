@@ -218,6 +218,7 @@ static const struct PortBindDef sBindsPort[] = {
     { "Zoom Out\n",          "zoom_out",       "zoom_out"       },
     { "Crouch (Hold)\n",     "crouch_hold",    "crouch_hold"    },
     { "Crouch (Toggle)\n",   "crouch_toggle",  "crouch_toggle"  },
+    { "Jump\n",              "jump",           "jump"           },
     { "Walk\n",              "walk",           "walk"           },
     /* No Run / Walk-Run rows: they only existed to leave or flip Always Walk, which is gone */
     /* The look rows (at the top) have their own keyboard binds, so binding W to "move forward"

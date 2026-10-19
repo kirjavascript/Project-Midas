@@ -53,6 +53,9 @@
  *   crouch_hold    squat while held, stand on release (a release that lands while
  *                  controls are not live is remembered and done on the next live
  *                  tick).
+ *   jump           bondviewUpdatePlayerY: an upward kick to field_7C while Bond is
+ *                  on the ground; the game's own fall code does the rest.
+ *                  [input] jump_height sets the peak (0 = off).
  *
  * Harness: GE_JOYPORT_AUTO="<action>:<poll>[,<action>:<poll>...]" presses an
  * action for one poll at that poll count (headless proof, no keyboard);
@@ -112,6 +115,7 @@ enum {
      * video.c takes the edge off the key (portVideoClassicTogglePressed) and
      * bondview2.c acts on it in play. */
     PORTACT_CLASSIC_TOGGLE,
+    PORTACT_JUMP,
     PORTACT_COUNT
 };
 
@@ -158,7 +162,11 @@ static const struct {
     /* F1 has always been this key; it is now just a default */
     [PORTACT_MOUSE_UNLOCK]     = { "mouse_unlock",     "F1",       1 },
     [PORTACT_CLASSIC_TOGGLE]   = { "classic_toggle",   "Tab",      1 },
+    [PORTACT_JUMP]             = { "jump",             "Space",    1 },
 };
+
+/* [input] jump_height: peak of a jump in world units (0 = jumping off). */
+static f32 sJumpHeight = 100.0f;
 
 /* [input] detonate_use_reload (default ON): with remote mines in the right
  * hand a use or reload press DETONATES instead of using / reloading - the
@@ -279,6 +287,13 @@ s32 portJoyPortSetOption(const char *key, const char *value)
         sShootNextPrev = atoi(value) != 0;
         return 1;
     }
+    if (strcmp(key, "jump_height") == 0) {
+        sJumpHeight = (f32) atof(value);
+        if (sJumpHeight < 0.0f) {
+            sJumpHeight = 0.0f;
+        }
+        return 1;
+    }
     /* padN_<the same two>: input_pc.c's padN_ arm is asked first and turns
      * these down (they are not pad controls), so they arrive here */
     if (strncmp(key, "pad", 3) == 0 && key[3] >= '1' && key[3] <= '4' && key[4] == '_') {
@@ -319,6 +334,11 @@ s32 portJoyPortDetonateUseReload(void)
 s32 portJoyPortShootNextPrev(void)
 {
     return sShootNextPrev;
+}
+
+f32 portJoyPortJumpHeight(void)
+{
+    return sJumpHeight;
 }
 
 /** bondviewProcessInput, every tick before the trigger is used: `held` = this
@@ -656,6 +676,28 @@ s32 portJoyPortClassicTogglePressed(s32 pad)
         return 0;
     }
     return portJoyPortTake(pad, PORTACT_CLASSIC_TOGGLE);
+}
+
+/** bondviewUpdatePlayerY, only while Bond is on the ground: 1 = jump now.
+ * Asked only when grounded, so a press just before landing still jumps
+ * (the latch lives 0.25s). */
+s32 portJoyPortJumpPressed(void)
+{
+    s32 pad = joyPortPad();
+
+    if (pad < 0 || sJumpHeight <= 0.0f) {
+        return 0;
+    }
+    if (!portJoyPortTake(pad, PORTACT_JUMP)) {
+        return 0;
+    }
+    if (!joyPortPermitted()) {
+        return 0;
+    }
+    if (joyPortDbg()) {
+        portConLogf("ge: joyport: jump (height %.1f)\n", sJumpHeight);
+    }
+    return 1;
 }
 
 /** The PORTACT_* ids the game side needs by name, so it needs no enum. */
