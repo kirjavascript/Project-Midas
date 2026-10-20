@@ -300,6 +300,13 @@ static const struct PortOpt sOpts[] = {
     TOGGLE("rumble",            "[input]", "Rumble\n",         PORTOPT_CAT_CONTROLLER),
     TOGGLE("detonate_use_reload","[input]", "Use+Rld Detonate\n", PORTOPT_CAT_CONTROLLER),
     TOGGLE("shoot_next_prev",   "[input]", "Shoot+Next = Prev\n", PORTOPT_CAT_CONTROLLER),
+    /* jumping - joy_port.c; shown on the Port Options sheet */
+    TOGGLE("jumping",           "[input]", "Jumping\n",        PORTOPT_CAT_GAMEPLAY),
+    INTR  ("jump_height",       "[input]", "Jump Height\n",    PORTOPT_CAT_GAMEPLAY, 50, 200, 10, ""),
+    TOGGLE("jump_ledges",       "[input]", "Ledge Jumping\n",  PORTOPT_CAT_GAMEPLAY),
+    TOGGLE("bhop",              "[input]", "Bunnyhopping\n",   PORTOPT_CAT_GAMEPLAY),
+    TOGGLE("auto_bhop",         "[input]", "Auto Bunnyhop\n",  PORTOPT_CAT_GAMEPLAY),
+    TOGGLE("speedometer",       "[input]", "Speedometer\n",    PORTOPT_CAT_GAMEPLAY),
     /* no player number in the label: the row always applies to the selected pad */
     TOGGLE("pad1_gadget_switch","[input]", "Gadget Switch\n", PORTOPT_CAT_CONTROLLER),
     /* per device: the watch and the CONTROL sheet name pad1 in their tables

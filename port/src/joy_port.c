@@ -55,7 +55,8 @@
  *                  tick).
  *   jump           bondviewUpdatePlayerY: an upward kick to field_7C while Bond is
  *                  on the ground; the game's own fall code does the rest.
- *                  [input] jump_height sets the peak (0 = off).
+ *                  [input] jump_height sets the peak (0 = off); jumping,
+ *                  jump_ledges, bhop and auto_bhop switch the extras.
  *
  * Harness: GE_JOYPORT_AUTO="<action>:<poll>[,<action>:<poll>...]" presses an
  * action for one poll at that poll count (headless proof, no keyboard);
@@ -167,6 +168,16 @@ static const struct {
 
 /* [input] jump_height: peak of a jump in world units (0 = jumping off). */
 static f32 sJumpHeight = 100.0f;
+/* [input] jumping / jump_ledges / bhop / auto_bhop, all default ON:
+ * jumping is the master switch, jump_ledges lets a jump cross onto ledges and
+ * past railings, bhop keeps and air-strafes momentum (bondview2.c
+ * portBhopMove), auto_bhop re-jumps on landing while jump is held. */
+static s32 sJumping = 1;
+static s32 sJumpLedges = 1;
+static s32 sBhop = 1;
+static s32 sAutoBhop = 1;
+/* [input] speedometer (default ON): horizontal speed under the crosshair */
+static s32 sSpeedometer = 1;
 
 /* [input] detonate_use_reload (default ON): with remote mines in the right
  * hand a use or reload press DETONATES instead of using / reloading - the
@@ -294,6 +305,26 @@ s32 portJoyPortSetOption(const char *key, const char *value)
         }
         return 1;
     }
+    if (strcmp(key, "jumping") == 0) {
+        sJumping = atoi(value) != 0;
+        return 1;
+    }
+    if (strcmp(key, "jump_ledges") == 0) {
+        sJumpLedges = atoi(value) != 0;
+        return 1;
+    }
+    if (strcmp(key, "bhop") == 0) {
+        sBhop = atoi(value) != 0;
+        return 1;
+    }
+    if (strcmp(key, "auto_bhop") == 0) {
+        sAutoBhop = atoi(value) != 0;
+        return 1;
+    }
+    if (strcmp(key, "speedometer") == 0) {
+        sSpeedometer = atoi(value) != 0;
+        return 1;
+    }
     /* padN_<the same two>: input_pc.c's padN_ arm is asked first and turns
      * these down (they are not pad controls), so they arrive here */
     if (strncmp(key, "pad", 3) == 0 && key[3] >= '1' && key[3] <= '4' && key[4] == '_') {
@@ -336,9 +367,40 @@ s32 portJoyPortShootNextPrev(void)
     return sShootNextPrev;
 }
 
+/** 0 with jumping off, so every jump feature keyed on it switches off too. */
 f32 portJoyPortJumpHeight(void)
 {
+    return sJumping ? sJumpHeight : 0.0f;
+}
+
+f32 portJoyPortJumpHeightRaw(void)
+{
     return sJumpHeight;
+}
+
+s32 portJoyPortJumping(void)
+{
+    return sJumping;
+}
+
+s32 portJoyPortJumpLedges(void)
+{
+    return sJumping && sJumpLedges;
+}
+
+s32 portJoyPortBhop(void)
+{
+    return sJumping && sBhop;
+}
+
+s32 portJoyPortAutoBhop(void)
+{
+    return sAutoBhop;
+}
+
+s32 portJoyPortSpeedometer(void)
+{
+    return sSpeedometer;
 }
 
 /** bondviewProcessInput, every tick before the trigger is used: `held` = this
@@ -417,6 +479,30 @@ s32 portJoyPortOptionGet(const char *key, s32 *out)
         *out = sShootNextPrev;
         return 1;
     }
+    if (strcmp(key, "jumping") == 0) {
+        *out = sJumping;
+        return 1;
+    }
+    if (strcmp(key, "jump_height") == 0) {
+        *out = (s32) (sJumpHeight + 0.5f);
+        return 1;
+    }
+    if (strcmp(key, "jump_ledges") == 0) {
+        *out = sJumpLedges;
+        return 1;
+    }
+    if (strcmp(key, "bhop") == 0) {
+        *out = sBhop;
+        return 1;
+    }
+    if (strcmp(key, "auto_bhop") == 0) {
+        *out = sAutoBhop;
+        return 1;
+    }
+    if (strcmp(key, "speedometer") == 0) {
+        *out = sSpeedometer;
+        return 1;
+    }
     return 0;
 }
 
@@ -432,6 +518,30 @@ s32 portJoyPortOptionSet(const char *key, s32 v)
     }
     if (strcmp(key, "shoot_next_prev") == 0) {
         sShootNextPrev = v != 0;
+        return 1;
+    }
+    if (strcmp(key, "jumping") == 0) {
+        sJumping = v != 0;
+        return 1;
+    }
+    if (strcmp(key, "jump_height") == 0) {
+        sJumpHeight = (f32) ((v < 0) ? 0 : v);
+        return 1;
+    }
+    if (strcmp(key, "jump_ledges") == 0) {
+        sJumpLedges = v != 0;
+        return 1;
+    }
+    if (strcmp(key, "bhop") == 0) {
+        sBhop = v != 0;
+        return 1;
+    }
+    if (strcmp(key, "auto_bhop") == 0) {
+        sAutoBhop = v != 0;
+        return 1;
+    }
+    if (strcmp(key, "speedometer") == 0) {
+        sSpeedometer = v != 0;
         return 1;
     }
     return 0;
@@ -685,11 +795,16 @@ s32 portJoyPortJumpPressed(void)
 {
     s32 pad = joyPortPad();
 
-    if (pad < 0 || sJumpHeight <= 0.0f) {
+    if (pad < 0 || portJoyPortJumpHeight() <= 0.0f) {
         return 0;
     }
-    if (!portJoyPortTake(pad, PORTACT_JUMP)) {
+    /* auto_bhop: held counts as pressed (sPrevDown is a one-shot's live level) */
+    s32 took = portJoyPortTake(pad, PORTACT_JUMP);
+    if (!took && !(sAutoBhop && sPrevDown[pad][PORTACT_JUMP])) {
         return 0;
+    }
+    if (joyPortDbg()) {
+        portConLogf("ge: joyport: jump via %s (pad %d)\n", took ? "press" : "hold", (int) pad);
     }
     if (!joyPortPermitted()) {
         return 0;

@@ -130,6 +130,12 @@ static const struct PortWatchRowDef sPortOpts[] = {
     { PWROW_OPT,       "watch_static",       NULL, 0, 0 },   /* watch static */
     { PWROW_OPT,       "mouse_auto_aim",     NULL, 0, 0 },   /* the folder's row too */
     { PWROW_OPT,       "high_lod", "High Detail Models\n", 0, 0 },   /* from Graphics */
+    { PWROW_OPT,       "jumping",            NULL, 0, 0 },
+    { PWROW_OPT,       "jump_height",        NULL, 0, 0 },
+    { PWROW_OPT,       "jump_ledges",        NULL, 0, 0 },
+    { PWROW_OPT,       "bhop",               NULL, 0, 0 },
+    { PWROW_OPT,       "auto_bhop",          NULL, 0, 0 },
+    { PWROW_OPT,       "speedometer",        NULL, 0, 0 },
     { PWROW_BACK,      NULL, "Back\n", 0, 0 },
 };
 

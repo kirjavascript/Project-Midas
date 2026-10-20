@@ -192,6 +192,12 @@ static s32 s_PortIntroSkipArmed = 0;
 
 #include "bondview_internal.h"
 
+#ifndef TARGET_N64
+/* The tree's IDO math.h hides its float declarations from GCC; an implicit
+ * fabsf returns garbage and leaks an x87 stack slot, NaN-ing later math. */
+extern float fabsf(float);
+#endif
+
 #define a8s "%8s"
 #define aX4_0f "x %4.0f"
 #define aY4_0f "y %4.0f"
@@ -2293,7 +2299,204 @@ f32 bondviewGet8003646CRad(void)
 */
 #ifndef TARGET_N64
 extern f32 portJoyPortJumpHeight(void);
+extern s32 portJoyPortJumpLedges(void);
+extern s32 portJoyPortBhop(void);
 extern void portConLogf(const char *fmt, ...);
+
+/* Bunnyhop state per player: world velocity (units per tick) that replaces
+ * the walk animation's motion while airborne. */
+static f32 s_bhopVel[4][2];
+static f32 s_bhopGround[4];   /* ticks on the ground since landing */
+static f32 s_bhopWalkMax[4];  /* fastest walk-animation speed seen on the ground */
+static s32 s_bhopActive[4];
+static f32 s_hudSpeed[4];     /* horizontal speed actually moved, units per second */
+
+/* Quake/CS air control: sv_airaccelerate 10, and the 30-of-250 air wish cap. */
+#define BHOP_AIR_ACCEL   10.0f
+#define BHOP_AIR_CAP     0.12f
+#define BHOP_MAX_MULT    5.0f   /* speed cap in walk speeds, so collision can't be tunnelled */
+#define BHOP_GRACE_TICKS 4.0f   /* on the ground this long keeps full speed (the re-jump window) */
+#define BHOP_FRICTION    0.2f   /* per tick, toward walk speed, once the grace is over */
+#define BHOP_GROUND_ACCEL 20.0f /* sv_accelerate-style, on ground ticks */
+
+static s32 portBhopAirborne(void)
+{
+    return (g_CurrentPlayer->field_7C > 0.0f)
+        || (g_CurrentPlayer->field_70 > g_CurrentPlayer->stanHeight + 1.0f);
+}
+
+/**
+ * Called with the tick's move_offset before collision; `wx`/`wz` is the walk
+ * animation's world velocity per tick already in it. Airborne (and for a short
+ * grace after landing) that is swapped for s_bhopVel, accelerated Quake-style
+ * toward the strafe/forward input. GE_BHOPDBG=1 logs the speed.
+ */
+static void portBhopMove(struct coord3d *move, f32 wx, f32 wz)
+{
+    static s32 dbg = -1;
+    const s32 p = get_cur_playernum() & 3;
+    const f32 d = g_GlobalTimerDelta;
+    f32 *v = s_bhopVel[p];
+    const f32 t0 = g_CurrentPlayer->field_488.theta_transform.f[0];
+    const f32 t2 = g_CurrentPlayer->field_488.theta_transform.f[2];
+    const f32 wspd = sqrtf((wx * wx) + (wz * wz));
+    f32 vmax;
+    f32 spd;
+
+    if (dbg < 0)
+    {
+        dbg = (getenv("GE_BHOPDBG") != NULL);
+    }
+    if (!portJoyPortBhop() || (d <= 0.0f) || g_PlayerIsInTank || (g_PlayerTankProp != NULL))
+    {
+        s_bhopActive[p] = 0;
+        return;
+    }
+
+    if (!portBhopAirborne())
+    {
+        if (wspd > s_bhopWalkMax[p])
+        {
+            s_bhopWalkMax[p] = wspd;
+        }
+        if (!s_bhopActive[p])
+        {
+            return;
+        }
+        s_bhopGround[p] += d;
+        if (wspd > 0.0f)
+        {   /* Quake ground accelerate toward the walk velocity: a one-tick
+             * landing can win back speed lost to a wall, never beyond walk speed */
+            const f32 add = wspd - (((v[0] * wx) + (v[1] * wz)) / wspd);
+
+            if (add > 0.0f)
+            {
+                f32 acc = BHOP_GROUND_ACCEL * wspd * d / 60.0f;
+
+                if (acc > add)
+                {
+                    acc = add;
+                }
+                v[0] += acc * wx / wspd;
+                v[1] += acc * wz / wspd;
+            }
+        }
+        if (s_bhopGround[p] > BHOP_GRACE_TICKS)
+        {
+            f32 k = BHOP_FRICTION * d;
+
+            if (k > 1.0f)
+            {
+                k = 1.0f;
+            }
+            v[0] += (wx - v[0]) * k;
+            v[1] += (wz - v[1]) * k;
+            if ((fabsf(v[0] - wx) + fabsf(v[1] - wz)) < (0.05f * s_bhopWalkMax[p]) + 0.01f)
+            {
+                s_bhopActive[p] = 0;
+                return;
+            }
+        }
+    }
+    else
+    {
+        f32 fx;
+        f32 fz;
+        f32 mag;
+        f32 sf = g_CurrentPlayer->speedforwards;
+        f32 ss = g_CurrentPlayer->speedsideways;
+
+        if (!s_bhopActive[p])
+        {
+            s_bhopActive[p] = 1;
+            v[0] = wx;
+            v[1] = wz;
+        }
+        s_bhopGround[p] = 0.0f;
+
+        /* the same forward/strafe basis the debug fast-bond move uses */
+        fx = (t0 * sf) - (t2 * ss);
+        fz = (t2 * sf) + (t0 * ss);
+        mag = sqrtf((fx * fx) + (fz * fz));
+        if ((mag > 0.0f) && (s_bhopWalkMax[p] > 0.0f))
+        {
+            const f32 wishspeed = s_bhopWalkMax[p] * ((mag > 1.0f) ? 1.0f : mag);
+            const f32 cap = wishspeed * BHOP_AIR_CAP;
+            f32 add;
+            f32 acc;
+
+            fx /= mag;
+            fz /= mag;
+            add = cap - ((v[0] * fx) + (v[1] * fz));
+            if (add > 0.0f)
+            {
+                acc = BHOP_AIR_ACCEL * wishspeed * d / 60.0f;
+                if (acc > add)
+                {
+                    acc = add;
+                }
+                v[0] += acc * fx;
+                v[1] += acc * fz;
+            }
+        }
+    }
+
+    vmax = s_bhopWalkMax[p] * BHOP_MAX_MULT;
+    spd = sqrtf((v[0] * v[0]) + (v[1] * v[1]));
+    if ((vmax > 0.0f) && (spd > vmax))
+    {
+        v[0] *= vmax / spd;
+        v[1] *= vmax / spd;
+    }
+
+    move->f[0] += (v[0] - wx) * d;
+    move->f[2] += (v[1] - wz) * d;
+
+    if (dbg)
+    {
+        static s32 n;
+
+        if ((n++ % 15) == 0)
+        {
+            portConLogf("ge: bhop %s spd=%.2f walk=%.2f (x%.2f) v=(%.2f %.2f) w=(%.2f %.2f) mv=(%.2f %.2f) pos=(%.1f %.1f %.1f) d=%.2f\n", portBhopAirborne() ? "air" : "gnd",
+                        spd, s_bhopWalkMax[p], (s_bhopWalkMax[p] > 0.0f) ? spd / s_bhopWalkMax[p] : 0.0f,
+                        v[0], v[1], wx, wz, move->f[0], move->f[2],
+                        g_CurrentPlayer->field_488.collision_position.f[0], g_CurrentPlayer->field_70,
+                        g_CurrentPlayer->field_488.collision_position.f[2], d);
+        }
+    }
+}
+
+/**
+ * After collision: a wall or slide shortens the air velocity to what was
+ * actually moved (sway excluded), so hitting something kills the speed.
+ */
+static void portBhopAfterCollision(f32 movedx, f32 movedz)
+{
+    const s32 p = get_cur_playernum() & 3;
+    const f32 d = g_GlobalTimerDelta;
+    f32 *v = s_bhopVel[p];
+    f32 ax;
+    f32 az;
+
+    if (d <= 0.0f)
+    {
+        return;
+    }
+    ax = movedx / d;
+    az = movedz / d;
+    /* smoothed so the speedometer doesn't flicker with collision jitter */
+    s_hudSpeed[p] += ((sqrtf((ax * ax) + (az * az)) * 60.0f) - s_hudSpeed[p]) * 0.3f;
+    if (!s_bhopActive[p])
+    {
+        return;
+    }
+    if (((ax * ax) + (az * az)) < ((v[0] * v[0]) + (v[1] * v[1])))
+    {
+        v[0] = ax;
+        v[1] = az;
+    }
+}
 
 /**
  * Jump support: the top of the highest object under Bond that he can step onto
@@ -10674,6 +10877,12 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 ) * g_GlobalTimerDelta * 10.0f;
         }
 
+#ifndef TARGET_N64
+        portBhopMove(&move_offset,
+                     (headpos_z * g_CurrentPlayer->field_488.theta_transform.f[0]) - (headpos_x * g_CurrentPlayer->field_488.theta_transform.f[2]),
+                     (headpos_z * g_CurrentPlayer->field_488.theta_transform.f[2]) + (headpos_x * g_CurrentPlayer->field_488.theta_transform.f[0]));
+#endif
+
         bondviewCalcUpdatePlayerCollision(&move_offset, (g_CurrentPlayer->swaytarget == 0.0f));
 
         stanTileDistanceRelated(
@@ -10820,6 +11029,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
         ftemp_col_x = g_CurrentPlayer->field_488.collision_position.f[0] - start_collision_pos_x;
         ftemp_col_z = g_CurrentPlayer->field_488.collision_position.f[2] - start_collision_pos_z;
+#ifndef TARGET_N64
+        portBhopAfterCollision(ftemp_col_x - sp220, ftemp_col_z - sp21C);
+#endif
         sp240 = (move_offset.f[0] * move_offset.f[0]) + (move_offset.f[2] * move_offset.f[2]);
         if (sp240 != 0.0f)
         {
@@ -12771,6 +12983,38 @@ static Gfx *portDrawFpsCounter(Gfx *gdl)
             fp_x += 1;
             fp_y += 1;
             gdl = textRenderOutlined(gdl, &fp_x, &fp_y, fpstext, ptrFontBankGothicChars, ptrFontBankGothic, -1, 0x646464FFU, viGetX(), viGetY(), 0, 0);
+            PORT_HUD_ANCHOR_OFF(gdl);
+            gdl = combiner_bayer_lod_perspective(gdl);
+        }
+    }
+    { /* [input] speedometer=1: horizontal speed (units/s) in the top-left
+       * corner, under the FPS counter when that is on, while Bond is under
+       * player control */
+        extern s32 portJoyPortSpeedometer(void);
+        extern s32 portBondControlsLive(void);
+        extern s32 portVideoShowFps(void);
+
+        if (portJoyPortSpeedometer() && portBondControlsLive() && !g_PlayerIsInTank)
+        {
+            static char sptext[16];
+            s32 tw = 0;
+            s32 th = 0;
+            s32 sx = viGetViewLeft() + 3;
+            s32 sy = viGetViewTop() + 3;
+
+            if (getPlayerCount() == 1 && portFullHeightActive())
+            {
+                sy = 3;
+            }
+            sprintf(sptext, "%d", (int) (s_hudSpeed[get_cur_playernum() & 3] + 0.5f));
+            if (portVideoShowFps() && (getPlayerCount() == 1 || get_cur_playernum() == 0))
+            {
+                textMeasure(&th, &tw, sptext, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+                sy += th + 2;
+            }
+            gdl = microcode_constructor(gdl);
+            PORT_HUD_ANCHOR_FULL(gdl, PORT_HUD_ANCHOR_LEFT);
+            gdl = textRenderOutlined(gdl, &sx, &sy, sptext, ptrFontBankGothicChars, ptrFontBankGothic, -1, 0x646464FFU, viGetX(), viGetY(), 0, 0);
             PORT_HUD_ANCHOR_OFF(gdl);
             gdl = combiner_bayer_lod_perspective(gdl);
         }

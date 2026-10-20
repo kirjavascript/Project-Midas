@@ -2172,8 +2172,15 @@ static void videoWriteDefaultIni(void)
         fprintf(f, "shoot_next_prev=%d\n", portJoyPortShootNextPrev());
     }
     {
-        extern f32 portJoyPortJumpHeight(void);
-        fprintf(f, "jump_height=%g\n", (double) portJoyPortJumpHeight());
+        extern f32 portJoyPortJumpHeightRaw(void);
+        extern s32 portJoyPortOptionGet(const char *key, s32 *out);
+        s32 v = 0;
+        fprintf(f, "jump_height=%g\n", (double) portJoyPortJumpHeightRaw());
+        portJoyPortOptionGet("jumping", &v);     fprintf(f, "jumping=%d\n", (int) v);
+        portJoyPortOptionGet("jump_ledges", &v); fprintf(f, "jump_ledges=%d\n", (int) v);
+        portJoyPortOptionGet("bhop", &v);        fprintf(f, "bhop=%d\n", (int) v);
+        portJoyPortOptionGet("auto_bhop", &v);   fprintf(f, "auto_bhop=%d\n", (int) v);
+        portJoyPortOptionGet("speedometer", &v); fprintf(f, "speedometer=%d\n", (int) v);
     }
     fprintf(f, "mouse=1\n");
     {   /* the live value, so the file can never drift from input_pc.c's
