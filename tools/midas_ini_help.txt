@@ -3,7 +3,7 @@ PROJECT MIDAS - midas.ini HELP
 
 midas.ini is the settings file for Project Midas. It sits next to the game
 executable and holds plain key=value lines in the sections [input],
-[display] and an optional [data]. It has no comments; this file explains
+[display] and the optional [data] and [mods]. It has no comments; this file explains
 the keys. Keyboard and mouse binds are kept separately, in
 Data/Devices/kbm.gedevice (see the last section).
 
@@ -41,19 +41,6 @@ Data/Devices/kbm.gedevice (see the last section).
                       |         | pressed together detonate them
   shoot_next_prev     | 1       | Hold next weapon (or next gadget) and tap
                       |         | shoot to go back one, as N64 A held + Z
-  jump_height         | 100     | How high the jump key lifts Bond, in
-                      |         | world units (0 = jumping off)
-  jumping             | 1       | 0 turns jumping and everything below off
-  jump_ledges         | 1       | A jump can cross onto ledges and past
-                      |         | railings
-  bhop                | 1       | Bunnyhopping: keep speed through quick
-                      |         | re-jumps; strafe + turn in the air to gain
-  auto_bhop           | 1       | Holding jump re-jumps on every landing
-  speedometer         | 1       | Horizontal speed (units/s) under the
-                      |         | crosshair
-  portal_gun          | 1       | Start solo missions with the Portal Gun
-                      |         | (fire = blue, aim = orange); console:
-                      |         | give portalgun
   Controllers
   pads                | 4       | N64 pads reported connected (1 to 4)
   rumble              | 1       | Vibration on or off
@@ -253,6 +240,23 @@ mipmaps is set by Classic Mode; leave it as it is.
 
 
 ==============================================================================
+[mods]  optional
+==============================================================================
+
+  Key   | Default | What it does
+  ------+---------+----------------------------------------------------------
+  load  | (all)   | Which mods in Data/Mods load: names separated by commas
+        |         | or spaces (load=bhop,funguns), all, or none. Listed mods
+        |         | load even with enabled=0 in their mod.ini; without this
+        |         | key every mod whose mod.ini has enabled=1 loads. The
+        |         | GE_MODS environment variable, same syntax, overrides it
+        |         | for one run, and GE_NOMODS=1 loads none. Read at start.
+
+A mod's own settings (bhop's jumping, jump_height, ...) live in [input]
+with the rest; see mods/README.md for each.
+
+
+==============================================================================
 Data/Devices/kbm.gedevice [binds]  keyboard and mouse bindings
 ==============================================================================
 
@@ -322,7 +326,6 @@ Port actions (extra actions beyond the N64 pad)
   menu_back        |                  | Menu-only back
   mouse_unlock     | F1               | Release or re-grab the mouse pointer
   classic_toggle   | Tab              | Switch Classic Mode on or off
-  jump             | Space            | Jump
 
 Retired keys (ignored): run, walk_toggle.
 

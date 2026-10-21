@@ -733,9 +733,9 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
         gdl = explosionCallRenderBulletImpactOnProp(gdl);
 #ifndef TARGET_N64
         {
-            extern Gfx *portPortalDecalsRender(Gfx *gdl);   /* explosion.c */
+            extern Gfx *portModsRenderWorld(Gfx *gdl);   /* port_mods.c: mod decals */
 
-            gdl = portPortalDecalsRender(gdl);
+            gdl = portModsRenderWorld(gdl);
         }
 #endif
         PORT_DXLU_GROUP(gdl, 0);

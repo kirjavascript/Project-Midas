@@ -1586,9 +1586,9 @@ void chraiCheckUseHeldItem(s32 hand)
 
 #ifndef TARGET_N64
         {
-            extern s32 portFunGunFire(s32 hand, s32 item);   /* funguns.c */
+            extern s32 portModsWeaponFire(s32 hand, s32 item);   /* port_mods.c */
 
-            if (portFunGunFire(hand, item_id))
+            if (portModsWeaponFire(hand, item_id))
             {
                 return;
             }

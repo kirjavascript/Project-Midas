@@ -53,10 +53,6 @@
  *   crouch_hold    squat while held, stand on release (a release that lands while
  *                  controls are not live is remembered and done on the next live
  *                  tick).
- *   jump           bondviewUpdatePlayerY: an upward kick to field_7C while Bond is
- *                  on the ground; the game's own fall code does the rest.
- *                  [input] jump_height sets the peak (0 = off); jumping,
- *                  jump_ledges, bhop and auto_bhop switch the extras.
  *
  * Harness: GE_JOYPORT_AUTO="<action>:<poll>[,<action>:<poll>...]" presses an
  * action for one poll at that poll count (headless proof, no keyboard);
@@ -116,7 +112,10 @@ enum {
      * video.c takes the edge off the key (portVideoClassicTogglePressed) and
      * bondview2.c acts on it in play. */
     PORTACT_CLASSIC_TOGGLE,
-    PORTACT_JUMP,
+    /* Mod actions (port_mods.c): claimed in order, named by the mod. The
+     * input_pc.c pad map has the same eight rows. */
+    PORTACT_MOD_FIRST,
+    PORTACT_MOD_LAST = PORTACT_MOD_FIRST + 7,
     PORTACT_COUNT
 };
 
@@ -163,24 +162,21 @@ static const struct {
     /* F1 has always been this key; it is now just a default */
     [PORTACT_MOUSE_UNLOCK]     = { "mouse_unlock",     "F1",       1 },
     [PORTACT_CLASSIC_TOGGLE]   = { "classic_toggle",   "Tab",      1 },
-    [PORTACT_JUMP]             = { "jump",             "Space",    1 },
+    /* one-shots, so a mod gets both the latch and the live level (sPrevDown);
+     * name and default come from port_mods.c */
+    [PORTACT_MOD_FIRST ... PORTACT_MOD_LAST] = { NULL, "", 1 },
 };
 
-/* [input] jump_height: peak of a jump in world units (0 = jumping off). */
-static f32 sJumpHeight = 100.0f;
-/* [input] jumping / jump_ledges / bhop / auto_bhop, all default ON:
- * jumping is the master switch, jump_ledges lets a jump cross onto ledges and
- * past railings, bhop keeps and air-strafes momentum (bondview2.c
- * portBhopMove), auto_bhop re-jumps on landing while jump is held. */
-static s32 sJumping = 1;
-static s32 sJumpLedges = 1;
-static s32 sBhop = 1;
-static s32 sAutoBhop = 1;
-/* [input] speedometer (default ON): horizontal speed under the crosshair */
-static s32 sSpeedometer = 1;
-/* [input] portal_gun (default ON): the Portal Gun at solo
- * mission start (funguns.c) */
-static s32 sPortalGun = 1;
+#include "port_mods.h"
+
+/** sPortActs[i].name, or the mod's name for a claimed mod slot (NULL unclaimed). */
+static const char *joyPortActName(s32 i)
+{
+    if (i >= PORTACT_MOD_FIRST && i <= PORTACT_MOD_LAST) {
+        return portModsActionName(i - PORTACT_MOD_FIRST);
+    }
+    return (i >= 0 && i < PORTACT_COUNT) ? sPortActs[i].name : NULL;
+}
 
 /* [input] detonate_use_reload (default ON): with remote mines in the right
  * hand a use or reload press DETONATES instead of using / reloading - the
@@ -250,19 +246,23 @@ static s32 joyPortDbg(void)
     return sDbg;
 }
 
+/* unclaimed mod slots are not binds at all: no ini key, no rebind row */
 s32 portJoyPortBindCount(void)
 {
-    return PORTACT_COUNT;
+    return PORTACT_MOD_FIRST + portModsActionCount();
 }
 
 const char *portJoyPortBindName(s32 i)
 {
-    return (i >= 0 && i < PORTACT_COUNT) ? sPortActs[i].name : NULL;
+    return (i < portJoyPortBindCount()) ? joyPortActName(i) : NULL;
 }
 
 const char *portJoyPortBindDefault(s32 i)
 {
-    return (i >= 0 && i < PORTACT_COUNT) ? sPortActs[i].defkeys : "";
+    if (i >= PORTACT_MOD_FIRST && i < portJoyPortBindCount()) {
+        return portModsActionDefault(i - PORTACT_MOD_FIRST);
+    }
+    return (i >= 0 && i < PORTACT_MOD_FIRST) ? sPortActs[i].defkeys : "";
 }
 
 s32 portJoyPortAlwaysWalk(void)
@@ -301,37 +301,6 @@ s32 portJoyPortSetOption(const char *key, const char *value)
         sShootNextPrev = atoi(value) != 0;
         return 1;
     }
-    if (strcmp(key, "jump_height") == 0) {
-        sJumpHeight = (f32) atof(value);
-        if (sJumpHeight < 0.0f) {
-            sJumpHeight = 0.0f;
-        }
-        return 1;
-    }
-    if (strcmp(key, "jumping") == 0) {
-        sJumping = atoi(value) != 0;
-        return 1;
-    }
-    if (strcmp(key, "jump_ledges") == 0) {
-        sJumpLedges = atoi(value) != 0;
-        return 1;
-    }
-    if (strcmp(key, "bhop") == 0) {
-        sBhop = atoi(value) != 0;
-        return 1;
-    }
-    if (strcmp(key, "auto_bhop") == 0) {
-        sAutoBhop = atoi(value) != 0;
-        return 1;
-    }
-    if (strcmp(key, "speedometer") == 0) {
-        sSpeedometer = atoi(value) != 0;
-        return 1;
-    }
-    if (strcmp(key, "portal_gun") == 0) {
-        sPortalGun = atoi(value) != 0;
-        return 1;
-    }
     /* padN_<the same two>: input_pc.c's padN_ arm is asked first and turns
      * these down (they are not pad controls), so they arrive here */
     if (strncmp(key, "pad", 3) == 0 && key[3] >= '1' && key[3] <= '4' && key[4] == '_') {
@@ -357,6 +326,9 @@ s32 portJoyPortSetOption(const char *key, const char *value)
             return 1;
         }
     }
+    if (portModsSetOption(key, value)) {
+        return 1;
+    }
     {   /* [input] playerN_profile: who is sitting where (port_profiles.c) */
         extern s32 portProfileIniKey(const char *key, const char *value);
 
@@ -372,47 +344,6 @@ s32 portJoyPortDetonateUseReload(void)
 s32 portJoyPortShootNextPrev(void)
 {
     return sShootNextPrev;
-}
-
-/** 0 with jumping off, so every jump feature keyed on it switches off too. */
-f32 portJoyPortJumpHeight(void)
-{
-    return sJumping ? sJumpHeight : 0.0f;
-}
-
-f32 portJoyPortJumpHeightRaw(void)
-{
-    return sJumpHeight;
-}
-
-s32 portJoyPortJumping(void)
-{
-    return sJumping;
-}
-
-s32 portJoyPortJumpLedges(void)
-{
-    return sJumping && sJumpLedges;
-}
-
-s32 portJoyPortBhop(void)
-{
-    return sJumping && sBhop;
-}
-
-s32 portJoyPortAutoBhop(void)
-{
-    return sAutoBhop;
-}
-
-s32 portJoyPortSpeedometer(void)
-{
-    return sSpeedometer;
-}
-
-s32 portJoyPortPortalGun(void)
-{
-    return sPortalGun;
 }
 
 /** bondviewProcessInput, every tick before the trigger is used: `held` = this
@@ -491,35 +422,7 @@ s32 portJoyPortOptionGet(const char *key, s32 *out)
         *out = sShootNextPrev;
         return 1;
     }
-    if (strcmp(key, "jumping") == 0) {
-        *out = sJumping;
-        return 1;
-    }
-    if (strcmp(key, "jump_height") == 0) {
-        *out = (s32) (sJumpHeight + 0.5f);
-        return 1;
-    }
-    if (strcmp(key, "jump_ledges") == 0) {
-        *out = sJumpLedges;
-        return 1;
-    }
-    if (strcmp(key, "bhop") == 0) {
-        *out = sBhop;
-        return 1;
-    }
-    if (strcmp(key, "auto_bhop") == 0) {
-        *out = sAutoBhop;
-        return 1;
-    }
-    if (strcmp(key, "speedometer") == 0) {
-        *out = sSpeedometer;
-        return 1;
-    }
-    if (strcmp(key, "portal_gun") == 0) {
-        *out = sPortalGun;
-        return 1;
-    }
-    return 0;
+    return portModsOptionGet(key, out);
 }
 
 s32 portJoyPortOptionSet(const char *key, s32 v)
@@ -536,35 +439,7 @@ s32 portJoyPortOptionSet(const char *key, s32 v)
         sShootNextPrev = v != 0;
         return 1;
     }
-    if (strcmp(key, "jumping") == 0) {
-        sJumping = v != 0;
-        return 1;
-    }
-    if (strcmp(key, "jump_height") == 0) {
-        sJumpHeight = (f32) ((v < 0) ? 0 : v);
-        return 1;
-    }
-    if (strcmp(key, "jump_ledges") == 0) {
-        sJumpLedges = v != 0;
-        return 1;
-    }
-    if (strcmp(key, "bhop") == 0) {
-        sBhop = v != 0;
-        return 1;
-    }
-    if (strcmp(key, "auto_bhop") == 0) {
-        sAutoBhop = v != 0;
-        return 1;
-    }
-    if (strcmp(key, "speedometer") == 0) {
-        sSpeedometer = v != 0;
-        return 1;
-    }
-    if (strcmp(key, "portal_gun") == 0) {
-        sPortalGun = v != 0;
-        return 1;
-    }
-    return 0;
+    return portModsOptionSet(key, v);
 }
 
 /* ---- harness: GE_JOYPORT_AUTO ------------------------------------------- */
@@ -589,7 +464,7 @@ static void joyPortAutoParse(void)
         if (*e == ':') {
             e++;
             for (i = 0; i < PORTACT_COUNT; i++) {
-                if (strcmp(name, sPortActs[i].name) == 0) {
+                if (joyPortActName(i) != NULL && strcmp(name, joyPortActName(i)) == 0) {
                     sAutoAct[sAutoCount] = i;
                     sAutoPoll[sAutoCount] = (u32) atoi(e);
                     sAutoCount++;
@@ -648,7 +523,7 @@ void portJoyPortPollCommit(void)
         if (sAutoPoll[i] == sPollCount) {
             sPending[0][sAutoAct[i]] = 1;
             if (joyPortDbg()) {
-                portConLogf("ge: joyport: AUTO press %s at poll %u\n", sPortActs[sAutoAct[i]].name, sPollCount);
+                portConLogf("ge: joyport: AUTO press %s at poll %u\n", joyPortActName(sAutoAct[i]), sPollCount);
             }
         }
     }
@@ -751,6 +626,28 @@ s32 portJoyPortWatchStep(void)
     return next ? 1 : (prev ? -1 : 0);
 }
 
+/** port_mods.c action_pressed: a latched press of mod slot `slot`, taken. */
+s32 portJoyPortModTake(s32 slot)
+{
+    s32 pad = joyPortPad();
+
+    if (pad < 0 || slot < 0 || slot > PORTACT_MOD_LAST - PORTACT_MOD_FIRST) {
+        return 0;
+    }
+    return portJoyPortTake(pad, PORTACT_MOD_FIRST + slot) && joyPortPermitted();
+}
+
+/** port_mods.c action_held: the live level (a one-shot's is sPrevDown). */
+s32 portJoyPortModDown(s32 slot)
+{
+    s32 pad = joyPortPad();
+
+    if (pad < 0 || slot < 0 || slot > PORTACT_MOD_LAST - PORTACT_MOD_FIRST) {
+        return 0;
+    }
+    return sPrevDown[pad][PORTACT_MOD_FIRST + slot] && joyPortPermitted();
+}
+
 /**
  * bondviewProcessInput, aim mode: 1 while the player is asking to lean or
  * zoom with a PORT binding rather than a C button. `act` is a PORTACT_*.
@@ -806,33 +703,6 @@ s32 portJoyPortClassicTogglePressed(s32 pad)
         return 0;
     }
     return portJoyPortTake(pad, PORTACT_CLASSIC_TOGGLE);
-}
-
-/** bondviewUpdatePlayerY, only while Bond is on the ground: 1 = jump now.
- * Asked only when grounded, so a press just before landing still jumps
- * (the latch lives 0.25s). */
-s32 portJoyPortJumpPressed(void)
-{
-    s32 pad = joyPortPad();
-
-    if (pad < 0 || portJoyPortJumpHeight() <= 0.0f) {
-        return 0;
-    }
-    /* auto_bhop: held counts as pressed (sPrevDown is a one-shot's live level) */
-    s32 took = portJoyPortTake(pad, PORTACT_JUMP);
-    if (!took && !(sAutoBhop && sPrevDown[pad][PORTACT_JUMP])) {
-        return 0;
-    }
-    if (joyPortDbg()) {
-        portConLogf("ge: joyport: jump via %s (pad %d)\n", took ? "press" : "hold", (int) pad);
-    }
-    if (!joyPortPermitted()) {
-        return 0;
-    }
-    if (joyPortDbg()) {
-        portConLogf("ge: joyport: jump (height %.1f)\n", sJumpHeight);
-    }
-    return 1;
 }
 
 /** The PORTACT_* ids the game side needs by name, so it needs no enum. */

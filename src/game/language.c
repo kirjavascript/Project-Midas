@@ -419,10 +419,10 @@ u8 * langGet(s32 slotID)
 
 #ifndef TARGET_N64
     if (bank_id == 45)
-    {   /* the port's own strings (funguns.c weapon names) */
-        extern const char *portFunGunsString(s32 slot);
+    {   /* mod strings (port_mods.c host->string) */
+        extern const char *portModsString(s32 slot);
 
-        return (u8 *) portFunGunsString(slotID & 0x03FF);
+        return (u8 *) portModsString(slotID & 0x03FF);
     }
     if (bank_id >= 45)
     {

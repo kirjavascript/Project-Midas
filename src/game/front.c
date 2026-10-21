@@ -4535,9 +4535,6 @@ static const struct PortSheetRow port_sheet_rows_portopts[] = {
     { SHROW_OPT, "watch_static" },           /* the watch's fuzz, default ON (vanilla) */
     { SHROW_OPT, "mouse_auto_aim" },         /* off: no Auto-Aim on the mouse, above every other Auto-Aim setting */
     { SHROW_OPT, "high_lod", "High Detail Models\n" },   /* moved from GRAPHICS */
-    { SHROW_OPT, "jumping" }, { SHROW_OPT, "jump_height" }, { SHROW_OPT, "jump_ledges" },
-    { SHROW_OPT, "bhop" }, { SHROW_OPT, "auto_bhop" }, { SHROW_OPT, "speedometer" },
-    { SHROW_OPT, "portal_gun" },
 };
 static const struct PortSheetRow port_sheet_rows_hud[] = {
     { SHROW_OPT, "sight_on_screen" }, { SHROW_OPT, "always_crosshair" },
@@ -5034,6 +5031,27 @@ static void portSheetBuild(s32 kind)
         port_sheet_row_label[port_sheet_rows] = src[i].label;
         port_sheet_row_bind[port_sheet_rows] = (src[i].kind == SHROW_GOSHEET) ? src[i].page : -1;
         port_sheet_rows++;
+    }
+    if (kind == PORT_SHEET_PORTOPTS)
+    {   /* the loaded mods' options (port_mods.c), after the port's own */
+        extern s32 portModsOptionCount(void);
+        extern const char *portModsOptionKey(s32 i);
+        s32 k;
+
+        for (k = 0; k < portModsOptionCount() && port_sheet_rows < PORT_SHEET_ROWS_MAX; k++)
+        {
+            s32 opt = portOptFind(portModsOptionKey(k));
+
+            if (opt < 0)
+            {
+                continue;
+            }
+            port_sheet_row_kind[port_sheet_rows] = SHROW_OPT;
+            port_sheet_row_opt[port_sheet_rows] = opt;
+            port_sheet_row_label[port_sheet_rows] = NULL;
+            port_sheet_row_bind[port_sheet_rows] = -1;
+            port_sheet_rows++;
+        }
     }
     if (kind == PORT_SHEET_CONTROL)
     {   /* just the four players */

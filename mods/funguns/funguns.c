@@ -1,20 +1,20 @@
 /**
- * funguns.c - the PC port's Portal Gun.
+ * funguns - the Portal Gun, as a mod.
  *
- * It reuses ITEM_SILVERWPPK, a slot no level places, so weapon cycling, "all
- * guns" and the setup scripts keep working, re-skinned with the Moonraker
- * laser model. Fire (Z) shoots the blue portal, the aim button (R / right
- * click) the orange one (bondview2.c routes it here instead of entering aim
+ * It takes a free item slot (host->claim_item: ITEM_SILVERWPPK, which no level
+ * places), so weapon cycling, "all guns" and the setup scripts keep working,
+ * re-skinned with the Moonraker laser model. Fire (Z) shoots the blue portal,
+ * the aim button (R / right click) the orange one (WEAPON_AIM, instead of aim
  * mode). Walking (or falling, or flying) into one puts Bond out of the other,
- * facing out of it, with his momentum turned through (bhop air velocity
- * horizontally, field_7C up/down).
+ * facing out of it, with his momentum turned through: the bhop mod's air
+ * velocity horizontally when it is loaded, field_7C up/down.
  *
  * [input] portal_gun=1 (default) gives it at solo mission start; console
  * `give portalgun` adds and equips it any time. GE_FUNGUNDBG=1 logs
  * placement and teleports.
  */
-#ifndef TARGET_N64
 #include <ultra64.h>
+#include <math.h>
 #include <bondgame.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
@@ -32,24 +32,21 @@
 #include "player.h"
 #include "propobj.h"
 #include "stan.h"
+#include "midas_mod.h"
+#include "decals.h"
 
 extern float sqrtf(float);
 extern float sinf(float);
 extern float cosf(float);
 extern float fabsf(float);
 extern char *getenv(const char *);
-extern void portConLogf(const char *fmt, ...);
 
-extern s32 portJoyPortPortalGun(void);
-extern s32 portBhopGetVelocity(f32 *vx, f32 *vz);
-extern void portBhopSetVelocity(f32 vx, f32 vz);
-extern void portPortalDecalSet(s32 i, coord3d *pos, coord3d *normal, s32 room, f32 halfw, f32 halfh, u8 r, u8 g, u8 b);
-extern void portPortalDecalClear(s32 i);
-
+extern f32 g_GlobalTimerDelta;
 extern GunModelFileRecord gitem_structs[];
 extern ModelFileHeader laser_header;
 extern WeaponStats laser_stats;
 
+extern s32 getPlayerCount(void);
 extern void bullet_path_from_screen_center(coord3d *origin, coord3d *dir, enum GUNHAND hand);
 extern s32 bgCopyDrawnRoomsToList(s32 *rooms, s32 max);
 extern s32 bgTestBulletHitBackground(coord3d *from, coord3d *to, s32 room, HitThing *hit);
@@ -58,19 +55,26 @@ extern void change_player_pos_to_target(struct collision434 *col, coord3d *pos, 
 extern void bondviewApplyVertaTheta(void);
 extern void bondviewUpdatePlayerRoom(struct player *player);
 extern f32 bondviewYPositionRelated(StandTile *tile, f32 x, f32 z);
+extern StandTile *stanFindTileBelowPos(coord3d *pos, u8 *rooms, f32 *yRtn);
+extern Mtxf *currentPlayerGetViewToWorldMtxf(void);
+extern f32 atan2f(f32 y, f32 x);
 
-#define PORTAL_GUN        ITEM_SILVERWPPK
+MIDAS_MOD_ABI_EXPORT
 
 #define PORTAL_HALF_W     35.0f
 #define PORTAL_HALF_H     60.0f
 #define PORTAL_COOLDOWN   20.0f    /* ticks after a trip before either portal works */
 #define PORTAL_MIN_SPEED  3.0f     /* exit speed floor along the exit normal, units/tick */
 
-static const char *const sFunGunStrings[] = {
-    "Portal Gun\n",      /* 0 */
-    "\n",                /* 1 */
-};
-#define FUNSTR(slot) ((u16) ((45 << 10) | (slot)))
+static const MidasHost *H;
+static s32 s_item = -1;            /* the Portal Gun's ITEM_* */
+static const s32 *s_portalGunOpt;  /* [input] portal_gun */
+static u16 s_strName;
+static u16 s_strBlank;
+
+/* the bhop mod's air velocity, when it is loaded */
+static s32 (*s_bhopGet)(f32 *vx, f32 *vz);
+static void (*s_bhopSet)(f32 vx, f32 vz);
 
 typedef struct
 {
@@ -97,19 +101,10 @@ static s32 funDbg(void)
     return dbg;
 }
 
-const char *portFunGunsString(s32 slot)
-{
-    if ((slot < 0) || (slot >= (s32) (sizeof(sFunGunStrings) / sizeof(sFunGunStrings[0]))))
-    {
-        return "\n";
-    }
-    return sFunGunStrings[slot];
-}
-
 /* The item row, re-pointed once: the asset tables stay N64-exact. */
 static void funPatchItems(void)
 {
-    GunModelFileRecord *portal = &gitem_structs[PORTAL_GUN];
+    GunModelFileRecord *portal = &gitem_structs[s_item];
 
     if (s_patched)
     {
@@ -131,14 +126,15 @@ static void funPatchItems(void)
     portal->equip_watch_x = gitem_structs[ITEM_LASER].equip_watch_x;
     portal->equip_watch_y = gitem_structs[ITEM_LASER].equip_watch_y;
     portal->equip_watch_z = gitem_structs[ITEM_LASER].equip_watch_z;
-    portal->upper_watch_text = FUNSTR(1);
-    portal->lower_watch_text = FUNSTR(0);
-    portal->weapon_of_choice_text = FUNSTR(0);
-    portal->watch_equipment_text = FUNSTR(0);
+    portal->upper_watch_text = s_strBlank;
+    portal->lower_watch_text = s_strName;
+    portal->weapon_of_choice_text = s_strName;
+    portal->watch_equipment_text = s_strName;
+    H->item_model_dir(s_item, "portalgun");
 }
 
-/** bondview_r.c, every level start after the fist is added. */
-void portFunGunsLevelStart(void)
+/** LEVEL_START, after the fist is added. */
+static void funLevelStart(void)
 {
     s32 i;
 
@@ -146,25 +142,26 @@ void portFunGunsLevelStart(void)
     for (i = 0; i < 2; i++)
     {
         s_portal[i].active = 0;
-        portPortalDecalClear(i);
+        funDecalClear(i);
     }
     s_portalCooldown = 0.0f;
-    if (portJoyPortPortalGun() && (getPlayerCount() == 1))
+    if (*s_portalGunOpt && (getPlayerCount() == 1))
     {
-        bondinvAddInvItem(PORTAL_GUN);
+        bondinvAddInvItem(s_item);
     }
 }
 
-/** Console `give`: adds and equips. 1 = done. */
-s32 portFunGunsGive(const char *what)
+/** Console `give portalgun`: adds and equips. */
+static s32 funGive(const char *what)
 {
-    if ((what == NULL) || ((what[0] != 'p') && (what[0] != 'P')))
+    if ((what[0] != 'p') && (what[0] != 'P'))
     {
         return 0;
     }
     funPatchItems();
-    bondinvAddInvItem(PORTAL_GUN);
-    currentPlayerEquipWeaponWrapper(GUNRIGHT, PORTAL_GUN);
+    bondinvAddInvItem(s_item);
+    currentPlayerEquipWeaponWrapper(GUNRIGHT, s_item);
+    H->log("gave portalgun\n");
     return 1;
 }
 
@@ -173,18 +170,10 @@ static s32 funOn(void)
     return s_patched && (getPlayerCount() == 1);
 }
 
-/** gun.c: the Data/Textures/Models/ folder for a first-person gun, or NULL. */
-const char *portFunGunModelDir(s32 item)
+/** 1 while the Portal Gun is in the right hand. */
+static s32 funHeld(void)
 {
-    return (s_patched && (item == PORTAL_GUN)) ? "portalgun" : NULL;
-}
-
-/** bondview2.c: 1 while the Portal Gun is in the right hand (aim = its second trigger). */
-s32 portFunGunHeld(void)
-{
-    const s32 item = getCurrentPlayerWeaponId(GUNRIGHT);
-
-    return funOn() && (item == PORTAL_GUN);
+    return funOn() && (getCurrentPlayerWeaponId(GUNRIGHT) == s_item);
 }
 
 /* ---- aiming -------------------------------------------------------------- */
@@ -307,17 +296,17 @@ static void portalPlace(s32 which)
         draw.z = pos.z + (normal.z * 0.5f);
         if (which == 0)
         {
-            portPortalDecalSet(0, &draw, &normal, room, PORTAL_HALF_W, PORTAL_HALF_H, 0x20, 0x80, 0xFF);
+            funDecalSet(0, &draw, &normal, room, PORTAL_HALF_W, PORTAL_HALF_H, 0x20, 0x80, 0xFF);
         }
         else
         {
-            portPortalDecalSet(1, &draw, &normal, room, PORTAL_HALF_W, PORTAL_HALF_H, 0xFF, 0x80, 0x10);
+            funDecalSet(1, &draw, &normal, room, PORTAL_HALF_W, PORTAL_HALF_H, 0xFF, 0x80, 0x10);
         }
     }
     if (funDbg())
     {
-        portConLogf("ge: portal %s at (%.0f %.0f %.0f) n=(%.2f %.2f %.2f) room %d\n", which ? "orange" : "blue",
-                    pos.x, pos.y, pos.z, normal.x, normal.y, normal.z, room);
+        H->log("portal %s at (%.0f %.0f %.0f) n=(%.2f %.2f %.2f) room %d\n", which ? "orange" : "blue",
+               pos.x, pos.y, pos.z, normal.x, normal.y, normal.z, room);
     }
 }
 
@@ -371,11 +360,10 @@ static void portalTeleport(const Portal *a, const Portal *b)
     f32 floory;
     f32 feet;
     f32 speed;
-    f32 into;
     f32 yawdelta = 0.0f;
 
     /* incoming velocity: the bhop air velocity, else what he just moved */
-    if (!portBhopGetVelocity(&vin.x, &vin.z))
+    if ((s_bhopGet == NULL) || !s_bhopGet(&vin.x, &vin.z))
     {
         const f32 d = (g_GlobalTimerDelta > 0.0f) ? g_GlobalTimerDelta : 1.0f;
 
@@ -384,7 +372,6 @@ static void portalTeleport(const Portal *a, const Portal *b)
     }
     vin.y = g_CurrentPlayer->field_7C;
     speed = sqrtf((vin.x * vin.x) + (vin.y * vin.y) + (vin.z * vin.z));
-    into = -((vin.x * a->normal.x) + (vin.y * a->normal.y) + (vin.z * a->normal.z));
 
     if (portalIsWall(a) && portalIsWall(b))
     {   /* turn everything (view and velocity) by the yaw between the portals */
@@ -413,7 +400,6 @@ static void portalTeleport(const Portal *a, const Portal *b)
             yawdelta = (theta * (180.0f / M_PI_F)) - g_CurrentPlayer->vv_theta;
         }
     }
-    (void) into;
 
     if (portalIsWall(b))
     {
@@ -444,7 +430,7 @@ static void portalTeleport(const Portal *a, const Portal *b)
     {
         if (funDbg())
         {
-            portConLogf("ge: portal exit has no floor under it\n");
+            H->log("portal exit has no floor under it\n");
         }
         return;
     }
@@ -482,13 +468,16 @@ static void portalTeleport(const Portal *a, const Portal *b)
     g_CurrentPlayer->field_3B8.z = col->pos.z / 0.100000024f;
     bondviewUpdatePlayerRoom(g_CurrentPlayer);
 
-    portBhopSetVelocity(vout.x, vout.z);
+    if (s_bhopSet != NULL)
+    {
+        s_bhopSet(vout.x, vout.z);
+    }
     s_portalCooldown = PORTAL_COOLDOWN;
 
     if (funDbg())
     {
-        portConLogf("ge: portal trip -> (%.0f %.0f %.0f) v=(%.2f %.2f %.2f) yaw%+.0f\n",
-                    exitpos.x, feet, exitpos.z, vout.x, vout.y, vout.z, yawdelta);
+        H->log("portal trip -> (%.0f %.0f %.0f) v=(%.2f %.2f %.2f) yaw%+.0f\n",
+               exitpos.x, feet, exitpos.z, vout.x, vout.y, vout.z, yawdelta);
     }
 }
 
@@ -516,12 +505,12 @@ static void portalTick(void)
     }
 }
 
-/* ---- triggers ------------------------------------------------------------ */
+/* ---- hooks --------------------------------------------------------------- */
 
-/** chrprop.c chraiCheckUseHeldItem: the fire trigger. 1 = handled. */
-s32 portFunGunFire(s32 hand, s32 item)
+/** WEAPON_FIRE: the blue portal. */
+static s32 funFire(s32 hand, s32 item)
 {
-    if (!funOn() || (hand != GUNRIGHT) || (item != PORTAL_GUN))
+    if (!funOn() || (hand != GUNRIGHT) || (item != s_item))
     {
         return 0;
     }
@@ -529,21 +518,55 @@ s32 portFunGunFire(s32 hand, s32 item)
     return 1;
 }
 
-/** bondview2.c: the aim button while the Portal Gun is out. */
-void portFunGunAlt(void)
+/** WEAPON_AIM: the aim button is the orange portal while the gun is out. */
+static s32 funAim(s32 pressed)
 {
-    if (getCurrentPlayerWeaponId(GUNRIGHT) == PORTAL_GUN)
+    if (!funHeld())
+    {
+        return 0;
+    }
+    if (pressed)
     {
         portalPlace(1);
     }
+    return 1;
 }
 
-/** bondview2.c, every on-foot tick after Bond's move. */
-void portFunGunsTick(void)
+/** PLAYER_MOVED, after the bhop mod's (priority 10): portal trips. */
+static void funMoved(f32 dx, f32 dz)
 {
+    (void) dx;
+    (void) dz;
     if (funOn())
     {
         portalTick();
     }
 }
-#endif
+
+MIDAS_EXPORT s32 midas_mod_init(const MidasHost *host)
+{
+    H = host;
+
+    s_item = H->claim_item("portalgun");
+    s_portalGunOpt = H->option_bool("portal_gun", "Portal Gun", 1);
+    if (s_item < 0 || s_portalGunOpt == NULL)
+    {
+        return 0;
+    }
+    s_strName = H->string("Portal Gun\n");
+    s_strBlank = H->string("\n");
+    s_bhopGet = (s32 (*)(f32 *, f32 *)) H->symbol("bhop", "bhop_get_velocity");
+    s_bhopSet = (void (*)(f32, f32)) H->symbol("bhop", "bhop_set_velocity");
+    if (s_bhopGet == NULL)
+    {
+        H->log("bhop mod not loaded: portals carry walk speed only\n");
+    }
+
+    H->hook(MIDAS_HOOK_LEVEL_START, (void *) funLevelStart, 0);
+    H->hook(MIDAS_HOOK_WEAPON_FIRE, (void *) funFire, 0);
+    H->hook(MIDAS_HOOK_WEAPON_AIM, (void *) funAim, 0);
+    H->hook(MIDAS_HOOK_PLAYER_MOVED, (void *) funMoved, 10);
+    H->hook(MIDAS_HOOK_RENDER_WORLD, (void *) funDecalsRender, 0);
+    H->command("give", funGive, "give portalgun");
+    return 1;
+}

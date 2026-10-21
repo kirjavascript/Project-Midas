@@ -954,10 +954,10 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
                 g_CurrentPlayer->copy_of_body_obj_header[hand] = *ptr_weapon_model;
 #ifndef TARGET_N64
                 {
-                    extern const char *portFunGunModelDir(s32 item);
+                    extern const char *portModsItemModelDir(s32 item);   /* port_mods.c */
                     extern void portTexModelDir(const char *dir);
 
-                    portTexModelDir(portFunGunModelDir(item));
+                    portTexModelDir(portModsItemModelDir(item));
                 }
 #endif
 

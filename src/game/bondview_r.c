@@ -418,9 +418,9 @@ void bondviewLoadSetupIntroSection(void)
     bondinvAddInvItem(ITEM_FIST);
 #ifndef TARGET_N64
     {
-        extern void portFunGunsLevelStart(void);   /* funguns.c */
+        extern void portModsLevelStart(void);   /* port_mods.c */
 
-        portFunGunsLevelStart();
+        portModsLevelStart();
     }
 #endif
 

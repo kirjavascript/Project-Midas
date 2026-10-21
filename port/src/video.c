@@ -29,6 +29,7 @@
 #endif
 #include "game/frametiming.h"   /* portTickSetHz: [display] tickhz */
 #include "romdata.h"            /* romdataIsIniKey: [data] keys are not "unknown controls" */
+#include "port_mods.h"          /* portModsIsIniKey: nor are [mods] keys */
 
 /* port_console.c: same output as the fprintf(stderr, ...) this replaced,
  * plus a silent copy in the tilde console ring (spec section 7). */
@@ -2171,18 +2172,6 @@ static void videoWriteDefaultIni(void)
         extern s32 portJoyPortShootNextPrev(void);
         fprintf(f, "shoot_next_prev=%d\n", portJoyPortShootNextPrev());
     }
-    {
-        extern f32 portJoyPortJumpHeightRaw(void);
-        extern s32 portJoyPortOptionGet(const char *key, s32 *out);
-        s32 v = 0;
-        fprintf(f, "jump_height=%g\n", (double) portJoyPortJumpHeightRaw());
-        portJoyPortOptionGet("jumping", &v);     fprintf(f, "jumping=%d\n", (int) v);
-        portJoyPortOptionGet("jump_ledges", &v); fprintf(f, "jump_ledges=%d\n", (int) v);
-        portJoyPortOptionGet("bhop", &v);        fprintf(f, "bhop=%d\n", (int) v);
-        portJoyPortOptionGet("auto_bhop", &v);   fprintf(f, "auto_bhop=%d\n", (int) v);
-        portJoyPortOptionGet("speedometer", &v); fprintf(f, "speedometer=%d\n", (int) v);
-        portJoyPortOptionGet("portal_gun", &v);    fprintf(f, "portal_gun=%d\n", (int) v);
-    }
     fprintf(f, "mouse=1\n");
     {   /* the live value, so the file can never drift from input_pc.c's
          * default again (it wrote 1 here after the default went to 0) */
@@ -3136,7 +3125,8 @@ static void videoLoadConfig(void)
             char *val = iniTrim(eq + 1);
 
             if (!videoSetDisplayOption(key, val) && !portInputSetOption(key, val) && !portJoyPortSetOption(key, val)
-                && !romdataIsIniKey(key) /* [data] rom=: romdata.c reads it itself, section-aware */)
+                && !romdataIsIniKey(key) /* [data] rom=: romdata.c reads it itself, section-aware */
+                && !portModsIsIniKey(key) /* [mods] load=: port_mods.c, the same way */)
             {
                 portConLogf("ge: midas.ini: unknown control \"%s\"\n", key);
             }
