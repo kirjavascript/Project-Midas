@@ -416,6 +416,13 @@ void bondviewLoadSetupIntroSection(void)
     }
 
     bondinvAddInvItem(ITEM_FIST);
+#ifndef TARGET_N64
+    {
+        extern void portFunGunsLevelStart(void);   /* funguns.c */
+
+        portFunGunsLevelStart();
+    }
+#endif
 
     if (set_starting_weapon == 0)
     {

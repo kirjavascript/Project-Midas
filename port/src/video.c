@@ -2181,6 +2181,7 @@ static void videoWriteDefaultIni(void)
         portJoyPortOptionGet("bhop", &v);        fprintf(f, "bhop=%d\n", (int) v);
         portJoyPortOptionGet("auto_bhop", &v);   fprintf(f, "auto_bhop=%d\n", (int) v);
         portJoyPortOptionGet("speedometer", &v); fprintf(f, "speedometer=%d\n", (int) v);
+        portJoyPortOptionGet("portal_gun", &v);    fprintf(f, "portal_gun=%d\n", (int) v);
     }
     fprintf(f, "mouse=1\n");
     {   /* the live value, so the file can never drift from input_pc.c's

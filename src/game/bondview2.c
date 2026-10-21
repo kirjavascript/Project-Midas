@@ -2498,6 +2498,31 @@ static void portBhopAfterCollision(f32 movedx, f32 movedz)
     }
 }
 
+/** funguns.c: the air velocity (units per tick) while bhop motion is active. */
+s32 portBhopGetVelocity(f32 *vx, f32 *vz)
+{
+    const s32 p = get_cur_playernum() & 3;
+
+    if (!s_bhopActive[p])
+    {
+        return 0;
+    }
+    *vx = s_bhopVel[p][0];
+    *vz = s_bhopVel[p][1];
+    return 1;
+}
+
+/** funguns.c portal exit: carry this velocity out (needs bhop on). */
+void portBhopSetVelocity(f32 vx, f32 vz)
+{
+    const s32 p = get_cur_playernum() & 3;
+
+    s_bhopVel[p][0] = vx;
+    s_bhopVel[p][1] = vz;
+    s_bhopActive[p] = 1;
+    s_bhopGround[p] = 0.0f;
+}
+
 /**
  * Jump support: the top of the highest object under Bond that he can step onto
  * from his current feet height (field_70), or `floor` if there is none. Only
@@ -7241,6 +7266,20 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
             if (lvlGetControlsLockedFlag() == 0 && disablePlayerActionsWhenPausedOrInMpMenu())
             {
+#ifndef TARGET_N64
+                extern s32 portFunGunHeld(void);
+                extern void portFunGunAlt(void);
+
+                if (portFunGunHeld())
+                {   /* the aim button is the fun guns' second trigger */
+                    if (sp100)
+                    {
+                        portFunGunAlt();
+                    }
+                    g_CurrentPlayer->insightaimmode = 0;
+                }
+                else
+#endif
                 if (cur_player_get_aim_control() == 0)
                 {
                     g_CurrentPlayer->insightaimmode = sp104;
@@ -7478,6 +7517,20 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             {
                 if (disablePlayerActionsWhenPausedOrInMpMenu())
                 {
+#ifndef TARGET_N64
+                    extern s32 portFunGunHeld(void);
+                    extern void portFunGunAlt(void);
+
+                    if (portFunGunHeld())
+                    {   /* the aim button is the fun guns' second trigger */
+                        if ((buttons & ~oldbuttons) & aimButtons)
+                        {
+                            portFunGunAlt();
+                        }
+                        g_CurrentPlayer->insightaimmode = 0;
+                    }
+                    else
+#endif
                     if (cur_player_get_aim_control() == 0)
                     {
                         g_CurrentPlayer->insightaimmode = (buttons & aimButtons) != 0;
@@ -11031,6 +11084,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         ftemp_col_z = g_CurrentPlayer->field_488.collision_position.f[2] - start_collision_pos_z;
 #ifndef TARGET_N64
         portBhopAfterCollision(ftemp_col_x - sp220, ftemp_col_z - sp21C);
+        {
+            extern void portFunGunsTick(void);   /* funguns.c: portals + held prop */
+
+            portFunGunsTick();
+        }
 #endif
         sp240 = (move_offset.f[0] * move_offset.f[0]) + (move_offset.f[2] * move_offset.f[2]);
         if (sp240 != 0.0f)

@@ -731,6 +731,13 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
         PORT_DXLU_GROUP(gdl, 4);
         gdl = explosionRenderScorchBuffer(gdl);
         gdl = explosionCallRenderBulletImpactOnProp(gdl);
+#ifndef TARGET_N64
+        {
+            extern Gfx *portPortalDecalsRender(Gfx *gdl);   /* explosion.c */
+
+            gdl = portPortalDecalsRender(gdl);
+        }
+#endif
         PORT_DXLU_GROUP(gdl, 0);
     }
  

@@ -402,6 +402,7 @@ static void conCmdHelp(void)
     conPrintLn(0, "  cl_hitchms <ms>       log frames this slow as 'ge: hitch:' (0 = off, not saved)");
     conPrintLn(0, "  cl_fadedbg 0|1        log objects' fade / cull changes as 'ge: fade:'");
     conPrintLn(0, "console commands:");
+    conPrintLn(0, "  give portalgun        add the Portal Gun and switch to it");
     conPrintLn(0, "  list [text]           the cl_ settings matching key or label");
     conPrintLn(0, "  harness [text]        the GE_* diagnostic env knobs");
     conPrintLn(0, "  clear                 empty the scrollback");
@@ -769,6 +770,19 @@ static void conExecute(char *line)
     else if (conStrEqI(cmd, "harness"))
     {
         conCmdHarness(arg1);
+    }
+    else if (conStrEqI(cmd, "give"))
+    {
+        extern s32 portFunGunsGive(const char *what);   /* funguns.c */
+
+        if (portFunGunsGive(arg1))
+        {
+            portConPrintf(1, "gave %s\n", arg1);
+        }
+        else
+        {
+            conPrintLn(0, "usage: give portalgun");
+        }
     }
     else if ((cmd[0] == 'c' || cmd[0] == 'C') && (cmd[1] == 'l' || cmd[1] == 'L') && cmd[2] == '_')
     {   /* cl_<setting> [value]: the value is the rest of the line (a key list keeps its spaces) */

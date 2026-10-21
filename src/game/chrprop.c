@@ -1584,6 +1584,16 @@ void chraiCheckUseHeldItem(s32 hand)
     {
         item_id = getCurrentPlayerWeaponId(hand);
 
+#ifndef TARGET_N64
+        {
+            extern s32 portFunGunFire(s32 hand, s32 item);   /* funguns.c */
+
+            if (portFunGunFire(hand, item_id))
+            {
+                return;
+            }
+        }
+#endif
         if (item_id == ITEM_TRIGGER)
         {
             trigger_remote_mine_detonation();

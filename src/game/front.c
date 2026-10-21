@@ -4537,6 +4537,7 @@ static const struct PortSheetRow port_sheet_rows_portopts[] = {
     { SHROW_OPT, "high_lod", "High Detail Models\n" },   /* moved from GRAPHICS */
     { SHROW_OPT, "jumping" }, { SHROW_OPT, "jump_height" }, { SHROW_OPT, "jump_ledges" },
     { SHROW_OPT, "bhop" }, { SHROW_OPT, "auto_bhop" }, { SHROW_OPT, "speedometer" },
+    { SHROW_OPT, "portal_gun" },
 };
 static const struct PortSheetRow port_sheet_rows_hud[] = {
     { SHROW_OPT, "sight_on_screen" }, { SHROW_OPT, "always_crosshair" },

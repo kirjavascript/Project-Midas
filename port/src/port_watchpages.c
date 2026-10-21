@@ -136,6 +136,7 @@ static const struct PortWatchRowDef sPortOpts[] = {
     { PWROW_OPT,       "bhop",               NULL, 0, 0 },
     { PWROW_OPT,       "auto_bhop",          NULL, 0, 0 },
     { PWROW_OPT,       "speedometer",        NULL, 0, 0 },
+    { PWROW_OPT,       "portal_gun",           NULL, 0, 0 },
     { PWROW_BACK,      NULL, "Back\n", 0, 0 },
 };
 

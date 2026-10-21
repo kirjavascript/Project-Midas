@@ -51,6 +51,9 @@ Data/Devices/kbm.gedevice (see the last section).
   auto_bhop           | 1       | Holding jump re-jumps on every landing
   speedometer         | 1       | Horizontal speed (units/s) under the
                       |         | crosshair
+  portal_gun          | 1       | Start solo missions with the Portal Gun
+                      |         | (fire = blue, aim = orange); console:
+                      |         | give portalgun
   Controllers
   pads                | 4       | N64 pads reported connected (1 to 4)
   rumble              | 1       | Vibration on or off

@@ -178,6 +178,9 @@ static s32 sBhop = 1;
 static s32 sAutoBhop = 1;
 /* [input] speedometer (default ON): horizontal speed under the crosshair */
 static s32 sSpeedometer = 1;
+/* [input] portal_gun (default ON): the Portal Gun at solo
+ * mission start (funguns.c) */
+static s32 sPortalGun = 1;
 
 /* [input] detonate_use_reload (default ON): with remote mines in the right
  * hand a use or reload press DETONATES instead of using / reloading - the
@@ -325,6 +328,10 @@ s32 portJoyPortSetOption(const char *key, const char *value)
         sSpeedometer = atoi(value) != 0;
         return 1;
     }
+    if (strcmp(key, "portal_gun") == 0) {
+        sPortalGun = atoi(value) != 0;
+        return 1;
+    }
     /* padN_<the same two>: input_pc.c's padN_ arm is asked first and turns
      * these down (they are not pad controls), so they arrive here */
     if (strncmp(key, "pad", 3) == 0 && key[3] >= '1' && key[3] <= '4' && key[4] == '_') {
@@ -401,6 +408,11 @@ s32 portJoyPortAutoBhop(void)
 s32 portJoyPortSpeedometer(void)
 {
     return sSpeedometer;
+}
+
+s32 portJoyPortPortalGun(void)
+{
+    return sPortalGun;
 }
 
 /** bondviewProcessInput, every tick before the trigger is used: `held` = this
@@ -503,6 +515,10 @@ s32 portJoyPortOptionGet(const char *key, s32 *out)
         *out = sSpeedometer;
         return 1;
     }
+    if (strcmp(key, "portal_gun") == 0) {
+        *out = sPortalGun;
+        return 1;
+    }
     return 0;
 }
 
@@ -542,6 +558,10 @@ s32 portJoyPortOptionSet(const char *key, s32 v)
     }
     if (strcmp(key, "speedometer") == 0) {
         sSpeedometer = v != 0;
+        return 1;
+    }
+    if (strcmp(key, "portal_gun") == 0) {
+        sPortalGun = v != 0;
         return 1;
     }
     return 0;

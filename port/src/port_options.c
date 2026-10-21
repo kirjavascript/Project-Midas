@@ -307,6 +307,7 @@ static const struct PortOpt sOpts[] = {
     TOGGLE("bhop",              "[input]", "Bunnyhopping\n",   PORTOPT_CAT_GAMEPLAY),
     TOGGLE("auto_bhop",         "[input]", "Auto Bunnyhop\n",  PORTOPT_CAT_GAMEPLAY),
     TOGGLE("speedometer",       "[input]", "Speedometer\n",    PORTOPT_CAT_GAMEPLAY),
+    TOGGLE("portal_gun",        "[input]", "Portal Gun\n",     PORTOPT_CAT_GAMEPLAY),
     /* no player number in the label: the row always applies to the selected pad */
     TOGGLE("pad1_gadget_switch","[input]", "Gadget Switch\n", PORTOPT_CAT_CONTROLLER),
     /* per device: the watch and the CONTROL sheet name pad1 in their tables
